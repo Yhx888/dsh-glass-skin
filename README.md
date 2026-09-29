@@ -1,0 +1,112 @@
+# dsh-glass-skin
+
+给 DeepSeek Harness 桌面端/Web 界面套一层**苹果液态玻璃（Liquid Glass）+ 毛玻璃**皮肤，
+主色调**保持原版蓝白**（品牌色、状态色、文字色一律沿用官方语义 token，不改色相）。
+
+材质配方参考 `C:\HOME\Project\Clause OS` 设计系统的玻璃契约（顶部白色内发光高光边、
+指针跟随镜面光泽、折射亮边、"玻璃背后必须有光斑才透光"），把它的翠绿单色换成官方蓝白。
+
+## 效果
+
+| 浅色 | 深色 |
+|---|---|
+| 冷调蓝白画布 + DeepSeek 蓝光斑；侧栏/中栏是半透明白玻璃，输入框卡片毛玻璃 | 近黑冷调画布 + 蓝色辉光；玻璃边缘出现白色高光棱线，卡片透出背后内容 |
+
+实测截图见交付报告（`_research/v5-light.png`、`_research/v5-dark.png`）。
+
+## 安装（已完成，此处为复现说明）
+
+桌面端由 Electron 托管 `desktop` profile，官方 CLI 会拒绝直接操作它
+（`error: profile "desktop" is managed exclusively by the Electron application`），
+因此用会话内的官方插件管理工具安装：
+
+```jsonc
+// plugin_manager { action: "install_bundle", target: "C:/HOME/Project/DSH plugins/dsh-glass-skin" }
+```
+
+它做三件事（与官方文档一致）：profile `dependencies` 加 `link:` 依赖、
+`dsh.profile.bundles` 追加本包、把本包 `cordis.patch.yml` 作为一层插入组合。
+
+手工等价做法（任何 profile 通用）：
+
+```sh
+dsh plugin --profile <name> add "/path/to/dsh-glass-skin"   # 官方命令，自动维护 bundles
+dsh --profile <name> --dump-config | grep glass-skin        # 应出现 "# == dsh-glass-skin"
+```
+
+客户端半是浏览器 roster 项，装好后**刷新页面（Ctrl+R）**即生效，无需重启后端。
+
+卸载：`plugin_manager { action: "remove_bundle", target: "dsh-glass-skin" }`
+（或 `dsh plugin --profile <name> remove dsh-glass-skin`）。
+
+## 使用
+
+设置 →「通用设置」→ 最下方的 **液态玻璃 · Liquid Glass** 一行：
+
+| 控件 | 作用 | 默认 |
+|---|---|---|
+| 开关 | 皮肤总开关（关掉即完全还原官方外观） | 开 |
+| 毛玻璃模糊 Blur | `backdrop-filter` 模糊半径 0–40px | 22px |
+| 表面不透明度 Opacity | 表面 alpha 系数 0.6–1.15，越小越通透 | 1 |
+| 环境光画布 Ambient | 背后的蓝白光斑层（关掉＝纯色画布） | 开 |
+| 指针光泽 Sheen | 跟随鼠标的镜面高光层 | 开 |
+
+偏好存在浏览器 `localStorage`（键 `dsh-glass-skin/prefs`），刷新与重启后保持。
+改默认值直接改 `lib/client.js` 里的 `DEFAULTS`。
+
+## 实现（全部走官方扩展点）
+
+| 层 | 用的官方机制 | 说明 |
+|---|---|---|
+| 颜色层 | `ctx.theme.overrideTokens(source, { token: { light, dark } })` | 只覆盖官方语义别名：`bg-base` / `bg-layer-1` / `bg-layer-2` / `bg-overlay` / `border-l1` / `border-l2` / `specific-sidebar-fill`。label、brand、state 一律不动，保证对比度与原版蓝白身份 |
+| 材质层 | 自有 `<style data-plugin="dsh-glass-skin">` | `backdrop-filter`、`inset` 高光边、折射亮线、光泽层；带 `data-plugin` 标记，卸载/HMR 自动清理 |
+| 设置界面 | `ctx.slots.inject('settings.general.item')` + `@deepseek-ai/dsh-client-store` 的 `defineStore` | 与官方 ui-theme 的 Appearance 行同一套契约 |
+| 打包 | `dsh.bundle.patch` + `dsh.client`（`platform: web`） | 官方组合包（bundle）规范，无构建链、无 postinstall |
+
+### 两个关键工程决策
+
+1. **不硬编码官方 CSS 模块类名**。官方类名是构建期哈希（`BynINW_sidebarCol`、`Dc7zOa_*`），
+   版本一升就失效。皮肤用**官方 slot 渲染出的 `[data-slot="…"]` 属性**做锚点，
+   再向上找到真正上色的布局列；官方若改结构，还有一层"按绘制了底色的大块元素"自愈扫描兜底。
+2. **不给大列加 `backdrop-filter`**。`backdrop-filter` 会让元素成为 `position: fixed` 后代的
+   包含块，套在包含整个应用的大列上会把菜单/浮层定位改坏。因此：
+   - 大列（侧栏/中栏/右栏）＝ 半透明填充 + 描边高光（无模糊）；
+   - 只有小尺度叶子表面（输入框卡片、对话框面板、浮层卡片）才加模糊，
+     且已经 `position: fixed` 的祖先若含 fixed 后代也会被跳过。
+
+### 无障碍
+
+- `prefers-reduced-transparency: reduce` → 去掉模糊与全部阴影，只留半透明；
+- `prefers-reduced-motion: reduce` → 去掉光泽过渡；
+- 文字与状态色使用官方 token，未参与调色，对比度与官方一致。
+
+## 目录
+
+```
+dsh-glass-skin/
+├── package.json        # name/main/exports + dsh.bundle.patch + dsh.client
+├── cordis.patch.yml    # 组合层：insert 一行 ui-glass-skin
+├── lib/index.js        # Host 半：零依赖、零副作用（只为让客户端 bundle 进 roster）
+├── lib/client.js       # Client 半：颜色层 + 材质层 + 表面识别 + 设置行（手写 ModuleLoader bundle）
+└── README.md
+```
+
+## 已验证（可复现）
+
+在隔离实例（临时 `DSH_HOME` + `--from-default-profile web`，与用户真实 profile 完全隔离）上：
+
+1. `dsh --profile glasscheck --dump-config` → 出现 `# == dsh-glass-skin` 层；
+2. 真实页面：`html[data-lg-skin="on"]`、样式表注入、token 覆盖为半透明、4 个表面被标记、零 console/page error；
+3. 功能：开关 off→on 双向可用、模糊滑块即时生效（22px→36px）、刷新后偏好保持；
+4. 明暗双模式渲染核对（截图）。
+
+## 已知限制
+
+- 菜单材质沿用官方（官方菜单本身已是 `blur(40px) saturate(150%)`），本插件不覆盖
+  `--dsw-menu-surface-fill` / `--dsw-menu-backdrop-filter`——官方样式规范明确禁止功能/平台 CSS 覆盖它们；
+- 偏好存在浏览器本地，不随 profile 备份迁移；
+- 只改视觉，不新增工具、不联网、不读写项目文件。
+
+## 许可
+
+MIT

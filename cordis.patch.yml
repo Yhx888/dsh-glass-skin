@@ -1,0 +1,6 @@
+# 本包贡献的组合层（bundle patch）：profile 在 `dsh.profile.bundles` 里列出本包后，
+# 这一行会被插入运行中的组合，从而把客户端半（浏览器 roster）挂进 Web 界面。
+# 行 id 固定为 ui-glass-skin；用户可在 profile 自己的 cordis.patch.yml 里按 id 覆盖它。
+- insert:
+    - id: ui-glass-skin
+      name: 'dsh-glass-skin'
